@@ -1,0 +1,7 @@
+./chroma_langchain_db/
+chroma_langchain_db/
+*.log
+*.pyc
+__pycache__/
+.env
+.gradio/

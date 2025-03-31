@@ -1,0 +1,8 @@
+openai
+langchain
+langchain-openai
+langchain-huggingface
+langchain-chroma
+langchain-community
+pysqlite3-binary
+gradio
