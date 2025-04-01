@@ -6,7 +6,8 @@ sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
 import gradio as gr
 import os
 
-os.environ["USER_AGENT"] = "my-app/1.0"  # Set USER_AGENT to identify requests
+os.environ["USER_AGENT"] = "my-app/1.0"  
+# Set USER_AGENT to identify requests when using HuggingFaceEndpoint and WebBaseLoader
 from langchain_huggingface import HuggingFaceEndpoint
 
 # from langchain_community.embeddings import HuggingFaceEmbeddings
