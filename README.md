@@ -13,7 +13,7 @@ This project implements a Retrieval-Augmented Generation (RAG) chatbot using Lan
 
 ## Prerequisites
 
-* Python 3.x
+* Python 3.1x
 * Pip
 * A Hugging Face API key (set as the `HUGGINGFACE_API_KEY` environment variable)
 
