@@ -57,7 +57,7 @@ This project implements a Retrieval-Augmented Generation (RAG) chatbot using Lan
 2.  The Gradio interface will launch in your web browser.
 3.  Enter your question in the chat input.
 4.  The chatbot will generate a response based on the fetched Wikipedia data.
-5.  Use the sliders to adjust the `Max output tokens` and `Creativeness` of the responses.
+5.  Use the sliders to adjust the `Max output tokens` and `Creativeness` of the responses
 
 ## Code Explanation
 
