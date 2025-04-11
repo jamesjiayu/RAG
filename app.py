@@ -5,8 +5,11 @@ Loads data from a web source, processes it into chunks, and stores embeddings
 for contextual question answering.
 """
 
-import os
+
 import sys
+__import__("pysqlite3")
+sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+import os
 import logging
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -21,12 +24,14 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
 # from langchain_openai import OpenAIEmbeddings
 
+import sqlite3
+print(f"version: {sqlite3.sqlite_version}")  # 确保输出 >=3.35.0 当前使用的 SQLite 版本: 3.46.1
+
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 # Replace standard sqlite3 with pysqlite3 for Chroma compatibility
-__import__("pysqlite3")
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+
 
 WEB_URL = "https://en.wikipedia.org/wiki/2025_Myanmar_earthquake"
 CHUNK_SIZE = 500
@@ -100,8 +105,9 @@ def embedding_data(chunks):
         documents=chunks,
         collection_name="chat_history",
         embedding=embeddings,
-        persist_directory="./chroma_langchain_db",
-    )  # vectorstore.add_documents(chunks)
+        persist_directory="./chroma_langchain_db", 
+    )  
+    # vectorstore.add_documents(chunks) #persist_directory=os.path.abspath("./chroma_langchain_db"),  # 使用绝对路径
     return vectorstore
 
 chunks = prepare_data()
