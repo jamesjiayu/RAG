@@ -1,35 +1,34 @@
 """
 Chatbot application using RAG (Retrieval-Augmented Generation) with LangChain,
-HuggingFace, Chroma, and Gradio for an interactive interface.
+HuggingFace, FAISS, and Gradio for an interactive interface.
 Loads data from a web source, processes it into chunks, and stores embeddings
 for contextual question answering.
 """
 
-import sys
 
-__import__("pysqlite3")
-sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+
+# __import__("pysqlite3")
+# sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+# import sqlite3
+# print(f"version: {sqlite3.sqlite_version}")
+#  >=3.35.0 if Chroma
+# from langchain_chroma import Chroma
+
 import os
+import sys
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 import gradio as gr
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
-
-# from langchain_openai import OpenAIEmbeddings
-
-import sqlite3
-
-print(f"version: {sqlite3.sqlite_version}")
-#  >=3.35.0
+#from langchain_openai import OpenAI, OpenAIEmbeddings  # For optional OpenAI fallback
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -43,11 +42,12 @@ CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 LLM_MODEL = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
-PERSIST_DIR = "./chroma_langchain_db"
-# PERSIST_DIR = "./faiss_index"
+# "facebook/rag-sequence-nq"   Or "google/flan-t5-large"
+# PERSIST_DIR = "./chroma_langchain_db"
+PERSIST_DIR = "./faiss_index"
 COLLECTION_NAME = "chat_history"
 USER_AGENT = "my-app/1.0"
-
+MAX_MESSAGES_BEFORE_PRUNE = 100 
 
 def setup_environment() -> str:
     load_dotenv()
@@ -104,41 +104,45 @@ hf = HuggingFaceEmbeddings(
 """
 
 
-def create_vector_store(chunks: List[Document]) -> Chroma:
-    logger.info("Initializing embeddings and vector store")
-    try:
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        vectorstore = Chroma.from_documents(
-            documents=chunks,
-            collection_name=COLLECTION_NAME,
-            embedding=embeddings,
-            persist_directory=PERSIST_DIR,
-        )
-        logger.info(f"Vector store created at {PERSIST_DIR}")
-        return vectorstore
-    except Exception as e:
-        logger.error(f"Failed to create vector stroe: {e}")
-        raise
-
-
-# pip install faiss-cpu
-# def create_vector_store1(chunks: List[Document]) -> FAISS:
+# def create_vector_store1(chunks: List[Document]) -> Chroma:
 #     logger.info("Initializing embeddings and vector store")
 #     try:
 #         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-#         vectorstore = FAISS.from_documents(chunks, embeddings)
-#         vectorstore.save_local(PERSIST_DIR)
+#         vectorstore = Chroma.from_documents(
+#             documents=chunks,
+#             collection_name=COLLECTION_NAME,
+#             embedding=embeddings,
+#             persist_directory=PERSIST_DIR,
+#         )
 #         logger.info(f"Vector store created at {PERSIST_DIR}")
 #         return vectorstore
 #     except Exception as e:
 #         logger.error(f"Failed to create vector stroe: {e}")
 #         raise
 
-# def load_vector_store() -> FAISS:
-#     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-#     vectorstore = FAISS.load_local(PERSIST_DIR, embeddings, allow_dangerous_deserialization=True)
-#     logger.info(f"load from {PERSIST_DIR} ")
-#     return vectorstore
+
+# pip install faiss-cpu
+def create_vector_store(chunks: List[Document]) -> FAISS:
+    logger.info("Initializing embeddings and vector store")
+    try:
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+        vectorstore = FAISS.from_documents(chunks, embeddings)
+        vectorstore.save_local(PERSIST_DIR)
+        logger.info(f"Vector store created at {PERSIST_DIR}")
+        return vectorstore
+    except Exception as e:
+        logger.error(f"Failed to create vector stroe: {e}")
+        raise
+
+# Note: allow_dangerous_deserialization=True is safe here since the index is locally generated,
+# but avoid in production with untrusted files due to pickle deserialization risks.
+def load_vector_store() -> FAISS:
+    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    vectorstore = FAISS.load_local(
+        PERSIST_DIR, embeddings, allow_dangerous_deserialization=True
+    )
+    logger.info(f"load from {PERSIST_DIR} ")
+    return vectorstore
 
 
 def initialize_llm(api_key: str) -> HuggingFaceEndpoint:
@@ -157,28 +161,32 @@ def initialize_llm(api_key: str) -> HuggingFaceEndpoint:
         raise
 
 
-def create_rag_chain(vectorstore: Chroma, llm: HuggingFaceEndpoint):
+def create_rag_chain(vectorstore: FAISS, llm: HuggingFaceEndpoint):
     logger.info("Setting up RAG chain")
-    template = """You are a friendly assistant chatbot. Use the following
-        context to answer the question concisely.
-        Context: {context}
-        Question: {question}
-        Answer: """
-    prompt = PromptTemplate.from_template(template)
+    try:
+        template = """You are a friendly assistant chatbot. Use the following
+            context to answer the question concisely.
+            Context: {context}
+            Question: {question}
+            Answer: """
+        prompt = PromptTemplate.from_template(template)
 
-    def format_docs(docs: List[Document]) -> str:
-        return "\n\n".join(doc.page_content for doc in docs)
+        def format_docs(docs: List[Document]) -> str:
+            return "\n\n".join(doc.page_content for doc in docs)
 
-    rag_chain = (
-        {
-            "context": vectorstore.as_retriever() | format_docs,
-            "question": RunnablePassthrough(),
-        }
-        | prompt
-        | llm
-        | StrOutputParser()
-    )
-    return rag_chain
+        rag_chain = (
+            {
+                "context": vectorstore.as_retriever() | format_docs,
+                "question": RunnablePassthrough(),
+            }
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
+        return rag_chain
+    except Exception as e:
+        logger.error(f"Failed to create RAG chain: {e}")
+        raise
 
     """
     (...) LangChain Runnable (object) sequence
@@ -202,110 +210,34 @@ def create_rag_chain(vectorstore: Chroma, llm: HuggingFaceEndpoint):
     """
 
 
-# # os.environ["USER_AGENT"] = "my-app/1.0"
-# load_dotenv()
-# api_key = os.getenv("HUGGINGFACE_API_KEY")
-
-
-# def prepare_data():
-#     # OpenAIEmbeddings requires an OpenAI API key. If you don’t have one, you can skip using it and stick with HuggingFaceBgeEmbeddings
-#     loader = WebBaseLoader("https://en.wikipedia.org/wiki/2025_Myanmar_earthquake")
-#     documents = loader.load()
-#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-#     chunks = text_splitter.split_documents(documents)
-#     print(chunks[0].page_content)
-#     return chunks
-
-
-# # rag_embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
-# # vector_store = Chroma.from_documents(
-# #     documents=chunks,
-# #     embedding=rag_embeddings,
-# #     persist_directory="./chroma_langchain_db",
-# # )
-# # retriever = vector_store.as_retriever()
-# # chroma_client = chromadb.PersistentClient(path="/workspaces/codespaces-blank/chroma_db")
-
-
-# def embedding_data(chunks):
-#     # Initialize embeddings for Chroma # all-MiniLM-L6-v2
-#     embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
-#     # Initialize Chroma vector store (in-memory for now)
-#     vectorstore = Chroma.from_documents(
-#         documents=chunks,
-#         collection_name="chat_history",
-#         embedding=embeddings,
-#         persist_directory="./chroma_langchain_db",
-#     )
-#     # vectorstore.add_documents(chunks) #persist_directory=os.path.abspath("./chroma_langchain_db"),  # 使用绝对路径
-#     return vectorstore
-
-
-# chunks = prepare_data()
-
-# vectorstore = embedding_data(chunks)
-
-# llm = HuggingFaceEndpoint(
-#     repo_id="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-#     huggingfacehub_api_token=api_key,
-#     max_new_tokens=256,
-#     temperature=0.2,
-#     task="text-generation",
-# )
-
-# template = """You are a friendly assistant chatbot. Use the following context to answer the question concisely.
-# Context: {context}
-# Question: {question}
-# Answer: """
-
-# prompt = PromptTemplate.from_template(template)
-# # prompt OBJECT # =ChatPromptTemplate.from_template(template)
-
-
-# # Define the RAG chain
-# def format_docs(docs):
-#     return "\n\n".join(doc.page_content for doc in docs)
-
-
-# rag_chain = (
-#     {
-#         "context": vectorstore.as_retriever() | format_docs,  #:retriever
-#         "question": RunnablePassthrough(),
-#     }
-#     | prompt
-#     | llm
-#     | StrOutputParser()
-# )
-
-
 def respond(
     current_msg: str,
-    history_msg: List,
     max_tokens: int,
     temperature: float,
-    vectorstore: Chroma,
+    vectorstore: FAISS,
     llm: HuggingFaceEndpoint,
     rag_chain,
-) -> Optional[str]:
+    history_msg: Optional[List[Dict]] = None,
+) -> str:
     logger.info(f"Processing message: {current_msg[:50]}...")
-    # Update LLM parameters
     llm.max_new_tokens = max_tokens
     llm.temperature = temperature
-
-    # Store user message in Chroma
+    vectorstore = load_vector_store()
+    # Store user message in Chroma. FAISS.save_local() 将其持久化到磁盘后，必须使用 FAISS.load_local() 明确地将其重新加载到内存中以执行像 add_texts 或检索这样的操作
     vectorstore.add_texts(texts=[current_msg], metadatas=[{"role": "user"}])
 
     try:
         # Generate response using RAG chain
         response = rag_chain.invoke(current_msg)
 
-        # Store assistant response in Chroma
+        # Store assistant response in vectorstore
         vectorstore.add_texts(texts=[response], metadatas=[{"role": "assistant"}])
+        # vectorstore.save_local(PERSIST_DIR) #Optionally save periodically
         logger.info("Response generated successfully")
         return response
     except Exception as e:
         logger.error(f"Error generating response: {e}")
-        return None
+        return "Sorry, I couldn't generate a response due to an error."
     finally:
         logger.info("Execution completed")
 
@@ -318,8 +250,8 @@ def main():
         llm = initialize_llm(api_key)
         rag_chain = create_rag_chain(vectorstore, llm)
         chatbot = gr.ChatInterface(
-            fn=lambda msg, history, tokens, temp: respond(
-                msg, history, tokens, temp, vectorstore, llm, rag_chain
+            fn=lambda msg, tokens, temp: respond(
+                msg, tokens, temp, vectorstore, llm, rag_chain
             ),
             type="messages",
             additional_inputs=[
@@ -336,7 +268,8 @@ def main():
             ],
             description="Chat with the bot using RAG powered by LangChain and Hugging Face.",
         )
-        chatbot.launch(share=True)
+        chatbot.launch()
+        vectorstore.save_local(PERSIST_DIR)
     except Exception as e:
         logger.error(f"Failed to launch chatbot: {e}")
         sys.exit(1)
