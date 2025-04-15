@@ -17,7 +17,7 @@ for contextual question answering.
 import os
 import sys
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List
 from dotenv import load_dotenv
 import gradio as gr
 from langchain_community.document_loaders import WebBaseLoader
