@@ -217,7 +217,7 @@ def respond(
     vectorstore: FAISS,
     llm: HuggingFaceEndpoint,
     rag_chain,
-    history_msg: Optional[List[Dict]] = None,
+    #history_msg: Optional[List[dict]] = None,
 ) -> str:
     logger.info(f"Processing message: {current_msg[:50]}...")
     llm.max_new_tokens = max_tokens
