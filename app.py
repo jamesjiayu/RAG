@@ -23,19 +23,26 @@ import gradio as gr
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
+
+from langchain_chroma import Chroma
+
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
+
+#from langchain_community.vectorstores import FAISS
 #from langchain_openai import OpenAI, OpenAIEmbeddings  # For optional OpenAI fallback
+import sqlite3
+print(f"version: {sqlite3.sqlite_version}")
+#  >=3.35.0 # Replace standard sqlite3 with pysqlite3 for Chroma compatibility
+
+
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-# Replace standard sqlite3 with pysqlite3 for Chroma compatibility
-
 
 WEB_URL = "https://en.wikipedia.org/wiki/2025_Myanmar_earthquake"
 CHUNK_SIZE = 500
@@ -47,7 +54,10 @@ LLM_MODEL = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
 PERSIST_DIR = "./faiss_index"
 COLLECTION_NAME = "chat_history"
 USER_AGENT = "my-app/1.0"
-MAX_MESSAGES_BEFORE_PRUNE = 100 
+
+
+# Set USER_AGENT to identify requests when using HuggingFaceEndpoint and WebBaseLoader
+#MAX_MESSAGES_BEFORE_PRUNE = 100 #for faiss
 
 def setup_environment() -> str:
     load_dotenv()
@@ -56,7 +66,6 @@ def setup_environment() -> str:
         logger.error("HUGGINGFACE_API_KEY not found in environment variables")
         raise ValueError("Missing HUGGINGFACE_API_KEY")
     os.environ["USER_AGENT"] = USER_AGENT
-    # Set USER_AGENT to identify requests when using HuggingFaceEndpoint and WebBaseLoader
     return api_key
 
 
@@ -104,46 +113,18 @@ hf = HuggingFaceEmbeddings(
 """
 
 
-# def create_vector_store1(chunks: List[Document]) -> Chroma:
-#     logger.info("Initializing embeddings and vector store")
-#     try:
-#         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-#         vectorstore = Chroma.from_documents(
-#             documents=chunks,
-#             collection_name=COLLECTION_NAME,
-#             embedding=embeddings,
-#             persist_directory=PERSIST_DIR,
-#         )
-#         logger.info(f"Vector store created at {PERSIST_DIR}")
-#         return vectorstore
-#     except Exception as e:
-#         logger.error(f"Failed to create vector stroe: {e}")
-#         raise
-
-
-# pip install faiss-cpu
-def create_vector_store(chunks: List[Document]) -> FAISS:
+def create_vector_store(chunks: List[Document]) -> Chroma:
     logger.info("Initializing embeddings and vector store")
     try:
         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-        vectorstore = FAISS.from_documents(chunks, embeddings)
-        vectorstore.save_local(PERSIST_DIR)
-        logger.info(f"Vector store created at {PERSIST_DIR}")
-        return vectorstore
-    except Exception as e:
-        logger.error(f"Failed to create vector stroe: {e}")
-        raise
+        vectorstore = Chroma.from_documents(
+            documents=chunks,
+            collection_name=COLLECTION_NAME,
+            embedding=embeddings,
+            persist_directory=PERSIST_DIR,
+        )
 
-# Note: allow_dangerous_deserialization=True is safe here since the index is locally generated,
-# but avoid in production with untrusted files due to pickle deserialization risks.
-def load_vector_store() -> FAISS:
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    vectorstore = FAISS.load_local(
-        PERSIST_DIR, embeddings, allow_dangerous_deserialization=True
-    )
-    logger.info(f"load from {PERSIST_DIR} ")
-    return vectorstore
-
+        
 
 def initialize_llm(api_key: str) -> HuggingFaceEndpoint:
     logger.info(f"Initializing LLM: {LLM_MODEL}")
@@ -208,7 +189,6 @@ def create_rag_chain(vectorstore: FAISS, llm: HuggingFaceEndpoint):
             formatted_content+="\n\n"
     return formatted_content    
     """
-
 
 def respond(
     current_msg: str,
@@ -277,3 +257,25 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+# pip install faiss-cpu
+# def create_vector_store1(chunks: List[Document]) -> FAISS:
+#     logger.info("Initializing embeddings and vector store")
+#     try:
+#         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+#         vectorstore = FAISS.from_documents(chunks, embeddings)
+#         vectorstore.save_local(PERSIST_DIR)
+#         logger.info(f"Vector store created at {PERSIST_DIR}")
+#         return vectorstore
+#     except Exception as e:
+#         logger.error(f"Failed to create vector stroe: {e}")
+#         raise
+
+# def load_vector_store() -> FAISS:
+#     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+#     vectorstore = FAISS.load_local(PERSIST_DIR, embeddings, allow_dangerous_deserialization=True)
+#     logger.info(f"load from {PERSIST_DIR} ")
+#     return vectorstore
